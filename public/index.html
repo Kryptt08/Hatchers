@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Value List</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:16px}
+  .wrap{max-width:1000px;margin:auto}
+  h1{margin:0 0 12px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  button,input,select{background:#222;color:#eee;border:1px solid #444;padding:8px 12px;border-radius:6px;font-size:14px}
+  button.on{background:#4a6cf7;border-color:#4a6cf7}
+  input{flex:1;min-width:140px}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px;border-bottom:1px solid #333;text-align:left;white-space:nowrap}
+  th{cursor:pointer;color:#aaa}
+  img{width:36px;height:36px;object-fit:contain;vertical-align:middle;margin-right:8px}
+  .n{font-size:12px;color:#999;white-space:normal}
+  .rising{color:#4ade80}.falling{color:#f87171}.stable{color:#facc15}
+  .d-low{color:#f87171}.d-medium{color:#facc15}.d-high{color:#4ade80}.d-very{color:#22d3ee}
+</style></head><body><div class="wrap">
+<h1>Value List</h1>
+<div class="bar">
+  <button id="t-legend" class="on">Legends</button>
+  <button id="t-secret">Secrets</button>
+  <input id="q" placeholder="Search...">
+</div>
+<div class="scroll"><table>
+  <thead><tr>
+    <th data-k="name">Name</th><th data-k="v_normal">Normal</th><th data-k="v_shiny">Shiny</th>
+    <th data-k="v_mystic">Mystic</th><th data-k="v_shiny_mystic">Shiny Mystic</th>
+    <th data-k="demand">Demand</th><th data-k="trend">Trend</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table></div>
+<script>
+let items=[],cat='legend',sortK='name',sortDir=1;
+const RANK={demand:{'':0,low:1,medium:2,high:3,'very high':4},trend:{'':0,falling:1,stable:2,rising:3}};
+function sortVal(i,k){return RANK[k]?RANK[k][i[k]]||0:i[k]}
+function demandCell(d){return d?`<span class="d-${d==='very high'?'very':d}">${d[0].toUpperCase()+d.slice(1)}</span>`:'-'}
+function trendCell(t){
+  if(t==='rising')return '<span class="rising">&#9650; Rising</span>';
+  if(t==='falling')return '<span class="falling">&#9660; Falling</span>';
+  if(t==='stable')return '<span class="stable">&#9654; Stable</span>';
+  return '-';
+}
+function fmt(n){
+  n=Number(n)||0; if(!n) return '-';
+  const u=[[1e12,'T'],[1e9,'B'],[1e6,'M'],[1e3,'K']];
+  for(const [v,s] of u) if(n>=v) return (+(n/v).toFixed(2))+s;
+  return String(n);
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function render(){
+  const q=document.getElementById('q').value.toLowerCase();
+  const list=items.filter(i=>i.category===cat && i.name.toLowerCase().includes(q))
+    .sort((a,b)=>{const x=sortVal(a,sortK),y=sortVal(b,sortK);return (x>y?1:x<y?-1:0)*sortDir});
+  document.getElementById('rows').innerHTML=list.map(i=>`<tr>
+    <td>${i.image_url?`<img src="${esc(i.image_url)}" alt="">`:''}${esc(i.name)}${i.notes?`<div class="n">${esc(i.notes)}</div>`:''}</td>
+    <td>${fmt(i.v_normal)}</td><td>${fmt(i.v_shiny)}</td><td>${fmt(i.v_mystic)}</td><td>${fmt(i.v_shiny_mystic)}</td><td>${demandCell(i.demand)}</td><td>${trendCell(i.trend)}</td></tr>`).join('')
+    || '<tr><td colspan="7">Nothing here yet.</td></tr>';
+}
+document.getElementById('t-legend').onclick=()=>{cat='legend';tabs();};
+document.getElementById('t-secret').onclick=()=>{cat='secret';tabs();};
+function tabs(){
+  document.getElementById('t-legend').classList.toggle('on',cat==='legend');
+  document.getElementById('t-secret').classList.toggle('on',cat==='secret');
+  render();
+}
+document.getElementById('q').oninput=render;
+document.querySelectorAll('th').forEach(th=>th.onclick=()=>{
+  const k=th.dataset.k; if(sortK===k) sortDir*=-1; else {sortK=k; sortDir=k==='name'?1:-1;} render();
+});
+fetch('/api/items').then(r=>r.json()).then(d=>{items=d;render();});
+</script></div></body></html>

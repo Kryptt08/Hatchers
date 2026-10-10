@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:16px}
+  .wrap{max-width:1200px;margin:auto}
+  button,input,select{background:#222;color:#eee;border:1px solid #444;padding:6px 10px;border-radius:6px;font-size:14px}
+  button{cursor:pointer} .pri{background:#4a6cf7;border-color:#4a6cf7} .del{background:#a33;border-color:#a33}
+  .card{background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  .grid input,.grid select{width:100%;box-sizing:border-box}
+  table{width:100%;border-collapse:collapse} td,th{padding:4px;border-bottom:1px solid #333;text-align:left}
+  td input,td select{width:100%;box-sizing:border-box;min-width:70px}
+  .scroll{overflow-x:auto} #msg{color:#7f7;margin-left:8px}
+  .hint{color:#999;font-size:12px}
+</style></head><body><div class="wrap">
+
+<div id="login" class="card">
+  <h2>Admin login</h2>
+  <input id="pw" type="password" placeholder="Admin password">
+  <button class="pri" onclick="login()">Log in</button> <span id="lerr" style="color:#f77"></span>
+</div>
+
+<div id="panel" style="display:none">
+  <h2>Admin Panel <a href="/" style="font-size:14px;color:#8af">view site</a> <span id="msg"></span></h2>
+
+  <div class="card">
+    <b>Add item</b> <span class="hint">(values accept 1500, 1.5k, 2m, 3.2b, 1t)</span>
+    <div class="grid" style="margin-top:8px">
+      <input id="a_name" placeholder="Name">
+      <select id="a_cat"><option value="legend">Legend</option><option value="secret">Secret</option></select>
+      <input id="a_img" placeholder="Image URL (optional)">
+      <input id="a_n" placeholder="Normal">
+      <input id="a_s" placeholder="Shiny">
+      <input id="a_m" placeholder="Mystic">
+      <input id="a_sm" placeholder="Shiny Mystic">
+      <select id="a_demand"><option value="">Demand: none</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="very high">Very High</option></select>
+      <select id="a_trend"><option value="">Trend: none</option><option value="rising">Rising</option><option value="stable">Stable</option><option value="falling">Falling</option></select>
+      <input id="a_notes" placeholder="Notes (optional)">
+      <button class="pri" onclick="addItem()">Add</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>Backup</b>
+    <button onclick="exportData()">Download backup</button>
+    <input type="file" id="imp" accept=".json">
+    <button onclick="importData()">Restore from backup</button>
+    <div class="hint">Restoring only adds/updates items, it never deletes anything.</div>
+  </div>
+
+  <div class="card">
+    <input id="filter" placeholder="Search items..." oninput="render()" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+    <div class="scroll"><table>
+      <thead><tr><th>Name</th><th>Type</th><th>Image URL</th><th>Normal</th><th>Shiny</th><th>Mystic</th><th>Shiny Mystic</th><th>Demand</th><th>Trend</th><th>Notes</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<script>
+let pw=sessionStorage.getItem('pw')||'',items=[];
+const $=id=>document.getElementById(id);
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function fmt(n){n=Number(n)||0;if(!n)return '';for(const [v,s] of [[1e12,'t'],[1e9,'b'],[1e6,'m'],[1e3,'k']])if(n>=v)return (+(n/v).toFixed(3))+s;return String(n)}
+async function api(url,method='GET',body){
+  const r=await fetch(url,{method,headers:{'Content-Type':'application/json','x-admin-password':pw},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error||'Error');
+  return d;
+}
+function flash(t){$('msg').textContent=t;setTimeout(()=>$('msg').textContent='',2500)}
+async function login(){
+  pw=$('pw').value||pw;
+  try{await api('/api/login','POST');sessionStorage.setItem('pw',pw);$('login').style.display='none';$('panel').style.display='block';load();}
+  catch(e){$('lerr').textContent='Wrong password';}
+}
+async function load(){items=await (await fetch('/api/items')).json();render();}
+function render(){
+  const q=$('filter').value.toLowerCase();
+  $('rows').innerHTML=items.filter(i=>i.name.toLowerCase().includes(q)).map(i=>`<tr data-id="${i.id}">
+    <td><input class="f-name" value="${esc(i.name)}"></td>
+    <td><select class="f-cat"><option value="legend"${i.category==='legend'?' selected':''}>Legend</option><option value="secret"${i.category==='secret'?' selected':''}>Secret</option></select></td>
+    <td><input class="f-img" value="${esc(i.image_url)}"></td>
+    <td><input class="f-n" value="${fmt(i.v_normal)}"></td>
+    <td><input class="f-s" value="${fmt(i.v_shiny)}"></td>
+    <td><input class="f-m" value="${fmt(i.v_mystic)}"></td>
+    <td><input class="f-sm" value="${fmt(i.v_shiny_mystic)}"></td>
+    <td><select class="f-demand">${['','low','medium','high','very high'].map(o=>`<option value="${o}"${i.demand===o?' selected':''}>${o?o[0].toUpperCase()+o.slice(1):'-'}</option>`).join('')}</select></td>
+    <td><select class="f-trend">${['','rising','stable','falling'].map(o=>`<option value="${o}"${i.trend===o?' selected':''}>${o?o[0].toUpperCase()+o.slice(1):'-'}</option>`).join('')}</select></td>
+    <td><input class="f-notes" value="${esc(i.notes)}"></td>
+    <td style="white-space:nowrap"><button class="pri" onclick="save(${i.id},this)">Save</button> <button class="del" onclick="del(${i.id})">Delete</button></td>
+  </tr>`).join('');
+}
+function body(g){return {name:g('name'),category:g('cat'),image_url:g('img'),v_normal:g('n'),v_shiny:g('s'),v_mystic:g('m'),v_shiny_mystic:g('sm'),notes:g('notes'),demand:g('demand'),trend:g('trend')}}
+async function addItem(){
+  try{
+    await api('/api/items','POST',body(k=>$('a_'+k).value));
+    ['name','img','n','s','m','sm','notes','demand','trend'].forEach(k=>$('a_'+k).value='');
+    flash('Added');load();
+  }catch(e){alert(e.message)}
+}
+async function save(id,btn){
+  const tr=btn.closest('tr');
+  try{await api('/api/items/'+id,'PUT',body(k=>tr.querySelector('.f-'+k).value));flash('Saved');load();}
+  catch(e){alert(e.message)}
+}
+async function del(id){
+  if(!confirm('Delete this item?'))return;
+  await api('/api/items/'+id,'DELETE');flash('Deleted');load();
+}
+async function exportData(){
+  const r=await fetch('/api/export',{headers:{'x-admin-password':pw}});
+  const b=await r.blob();const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download='values-backup.json';a.click();
+}
+async function importData(){
+  const f=$('imp').files[0];if(!f)return alert('Pick a backup file first');
+  try{const d=await api('/api/import','POST',JSON.parse(await f.text()));flash('Imported '+d.imported);load();}
+  catch(e){alert(e.message)}
+}
+if(pw){login();}
+</script></div></body></html>
