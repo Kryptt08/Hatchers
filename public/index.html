@@ -50,6 +50,10 @@ function fmt(n){
   for(const [v,s] of u) if(n>=v) return (+(n/v).toFixed(2))+s;
   return String(n);
 }
+function vc(i,v,e){
+  const ex=Number(i[e])||0;
+  return fmt(i[v])+(i.category==='secret'?`<div class="n">Exist: ${ex?ex.toLocaleString():'-'}</div>`:'');
+}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function render(){
   const q=document.getElementById('q').value.toLowerCase();
@@ -57,7 +61,7 @@ function render(){
     .sort((a,b)=>{const x=sortVal(a,sortK),y=sortVal(b,sortK);return (x>y?1:x<y?-1:0)*sortDir});
   document.getElementById('rows').innerHTML=list.map(i=>`<tr>
     <td>${i.image_url?`<img src="${esc(i.image_url)}" alt="">`:''}${esc(i.name)}${i.notes?`<div class="n">${esc(i.notes)}</div>`:''}</td>
-    <td>${fmt(i.v_normal)}</td><td>${fmt(i.v_shiny)}</td><td>${fmt(i.v_mystic)}</td><td>${fmt(i.v_shiny_mystic)}</td><td>${demandCell(i.demand)}</td><td>${trendCell(i.trend)}</td></tr>`).join('')
+    <td>${vc(i,'v_normal','e_normal')}</td><td>${vc(i,'v_shiny','e_shiny')}</td><td>${vc(i,'v_mystic','e_mystic')}</td><td>${vc(i,'v_shiny_mystic','e_shiny_mystic')}</td><td>${demandCell(i.demand)}</td><td>${trendCell(i.trend)}</td></tr>`).join('')
     || '<tr><td colspan="7">Nothing here yet.</td></tr>';
 }
 document.getElementById('t-legend').onclick=()=>{cat='legend';tabs();};

@@ -26,7 +26,7 @@
   <h2>Admin Panel <a href="/" style="font-size:14px;color:#8af">view site</a> <span id="msg"></span></h2>
 
   <div class="card">
-    <b>Add item</b> <span class="hint">(values accept 1500, 1.5k, 2m, 3.2b, 1t)</span>
+    <b>Add item</b> <span class="hint">(values accept 1500, 1.5k, 2m, 3.2b, 1t. Exist counts only save for Secrets.)</span>
     <div class="grid" style="margin-top:8px">
       <input id="a_name" placeholder="Name">
       <select id="a_cat"><option value="legend">Legend</option><option value="secret">Secret</option></select>
@@ -37,6 +37,10 @@
       <input id="a_sm" placeholder="Shiny Mystic">
       <select id="a_demand"><option value="">Demand: none</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="very high">Very High</option></select>
       <select id="a_trend"><option value="">Trend: none</option><option value="rising">Rising</option><option value="stable">Stable</option><option value="falling">Falling</option></select>
+      <input id="a_en" placeholder="Exist: Normal (secrets)">
+      <input id="a_es" placeholder="Exist: Shiny (secrets)">
+      <input id="a_em" placeholder="Exist: Mystic (secrets)">
+      <input id="a_esm" placeholder="Exist: Shiny Mystic (secrets)">
       <input id="a_notes" placeholder="Notes (optional)">
       <button class="pri" onclick="addItem()">Add</button>
     </div>
@@ -53,7 +57,7 @@
   <div class="card">
     <input id="filter" placeholder="Search items..." oninput="render()" style="width:100%;box-sizing:border-box;margin-bottom:8px">
     <div class="scroll"><table>
-      <thead><tr><th>Name</th><th>Type</th><th>Image URL</th><th>Normal</th><th>Shiny</th><th>Mystic</th><th>Shiny Mystic</th><th>Demand</th><th>Trend</th><th>Notes</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Type</th><th>Image URL</th><th>Normal</th><th>Shiny</th><th>Mystic</th><th>Shiny Mystic</th><th>Demand</th><th>Trend</th><th>Exist N</th><th>Exist S</th><th>Exist M</th><th>Exist SM</th><th>Notes</th><th></th></tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
   </div>
@@ -89,15 +93,19 @@ function render(){
     <td><input class="f-sm" value="${fmt(i.v_shiny_mystic)}"></td>
     <td><select class="f-demand">${['','low','medium','high','very high'].map(o=>`<option value="${o}"${i.demand===o?' selected':''}>${o?o[0].toUpperCase()+o.slice(1):'-'}</option>`).join('')}</select></td>
     <td><select class="f-trend">${['','rising','stable','falling'].map(o=>`<option value="${o}"${i.trend===o?' selected':''}>${o?o[0].toUpperCase()+o.slice(1):'-'}</option>`).join('')}</select></td>
+    <td><input class="f-en" value="${i.e_normal||''}"></td>
+    <td><input class="f-es" value="${i.e_shiny||''}"></td>
+    <td><input class="f-em" value="${i.e_mystic||''}"></td>
+    <td><input class="f-esm" value="${i.e_shiny_mystic||''}"></td>
     <td><input class="f-notes" value="${esc(i.notes)}"></td>
     <td style="white-space:nowrap"><button class="pri" onclick="save(${i.id},this)">Save</button> <button class="del" onclick="del(${i.id})">Delete</button></td>
   </tr>`).join('');
 }
-function body(g){return {name:g('name'),category:g('cat'),image_url:g('img'),v_normal:g('n'),v_shiny:g('s'),v_mystic:g('m'),v_shiny_mystic:g('sm'),notes:g('notes'),demand:g('demand'),trend:g('trend')}}
+function body(g){return {name:g('name'),category:g('cat'),image_url:g('img'),v_normal:g('n'),v_shiny:g('s'),v_mystic:g('m'),v_shiny_mystic:g('sm'),notes:g('notes'),demand:g('demand'),trend:g('trend'),e_normal:g('en'),e_shiny:g('es'),e_mystic:g('em'),e_shiny_mystic:g('esm')}}
 async function addItem(){
   try{
     await api('/api/items','POST',body(k=>$('a_'+k).value));
-    ['name','img','n','s','m','sm','notes','demand','trend'].forEach(k=>$('a_'+k).value='');
+    ['name','img','n','s','m','sm','notes','demand','trend','en','es','em','esm'].forEach(k=>$('a_'+k).value='');
     flash('Added');load();
   }catch(e){alert(e.message)}
 }
