@@ -20,6 +20,16 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Every column the admin can edit (used to build all the SQL below)
+const COLS = [
+  'name', 'category', 'image_url',
+  'v_normal', 'v_shiny', 'v_mystic', 'v_shiny_mystic',
+  'vt_normal', 'vt_shiny', 'vt_mystic', 'vt_shiny_mystic',
+  'notes', 'demand', 'trend',
+  'e_normal', 'e_shiny', 'e_mystic', 'e_shiny_mystic',
+  'subcat',
+];
+
 // Creates the table ONLY if it doesn't exist. Never drops or wipes anything.
 async function init() {
   await pool.query(`
@@ -37,22 +47,43 @@ async function init() {
       UNIQUE (name, category)
     )
   `);
-  // Safe migration: adds new columns to an existing table, keeps all data
-  await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS demand TEXT NOT NULL DEFAULT ''`);
-  await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS trend TEXT NOT NULL DEFAULT ''`);
-  for (const c of ['e_normal', 'e_shiny', 'e_mystic', 'e_shiny_mystic']) {
-    await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS ${c} DOUBLE PRECISION NOT NULL DEFAULT 0`);
+  // Safe migrations: add new columns, keep all existing data
+  const add = [
+    ['demand', "TEXT NOT NULL DEFAULT ''"],
+    ['trend', "TEXT NOT NULL DEFAULT ''"],
+    ['e_normal', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+    ['e_shiny', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+    ['e_mystic', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+    ['e_shiny_mystic', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+    ['vt_normal', "TEXT NOT NULL DEFAULT ''"],
+    ['vt_shiny', "TEXT NOT NULL DEFAULT ''"],
+    ['vt_mystic', "TEXT NOT NULL DEFAULT ''"],
+    ['vt_shiny_mystic', "TEXT NOT NULL DEFAULT ''"],
+    ['subcat', "TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [c, t] of add) {
+    await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS ${c} ${t}`);
   }
 }
 
 // "1.5b" -> 1500000000, "250k" -> 250000, "1,000" -> 1000
-function parseValue(v) {
+function parseNum(v) {
   if (v === null || v === undefined || v === '') return 0;
   if (typeof v === 'number') return isFinite(v) ? v : 0;
   const m = String(v).trim().replace(/,/g, '').match(/^(\d*\.?\d+)\s*([kmbt])?$/i);
   if (!m) return 0;
   const mult = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[(m[2] || '').toLowerCase()] || 1;
   return parseFloat(m[1]) * mult;
+}
+
+// A value slot can be a number ("1.5b") OR free text ("N/A", "Offsale")
+function parseVal(v) {
+  if (v === null || v === undefined) return { n: 0, t: '' };
+  if (typeof v === 'number') return { n: isFinite(v) ? v : 0, t: '' };
+  const s = String(v).trim();
+  if (!s) return { n: 0, t: '' };
+  if (/^(\d*\.?\d+)\s*([kmbt])?$/i.test(s.replace(/,/g, ''))) return { n: parseNum(s), t: '' };
+  return { n: 0, t: s.slice(0, 30) };
 }
 
 function auth(req, res, next) {
@@ -66,25 +97,26 @@ const DEMANDS = ['low', 'medium', 'high', 'very high'];
 const TRENDS = ['rising', 'stable', 'falling'];
 
 function clean(b) {
+  const category = b.category === 'secret' ? 'secret' : 'legend';
+  const isSecret = category === 'secret';
   const demand = String(b.demand || '').trim().toLowerCase();
   const trend = String(b.trend || '').trim().toLowerCase();
-  const isSecret = b.category === 'secret';
-  const ex = k => (isSecret ? Math.max(0, Math.round(parseValue(b[k]))) : 0); // exist counts: secrets only
+  // exist counts and subcategory are for secrets only
+  const ex = k => (isSecret ? Math.max(0, Math.round(parseNum(b[k]))) : 0);
+  // text version wins if present (that's how backups store text values)
+  const pv = k => parseVal(b['vt_' + k] ? b['vt_' + k] : b['v_' + k]);
+  const n = pv('normal'), s = pv('shiny'), m = pv('mystic'), sm = pv('shiny_mystic');
   return {
+    name: String(b.name || '').trim(),
+    category,
+    image_url: String(b.image_url || '').trim(),
+    v_normal: n.n, v_shiny: s.n, v_mystic: m.n, v_shiny_mystic: sm.n,
+    vt_normal: n.t, vt_shiny: s.t, vt_mystic: m.t, vt_shiny_mystic: sm.t,
+    notes: String(b.notes || '').trim(),
     demand: DEMANDS.includes(demand) ? demand : '',
     trend: TRENDS.includes(trend) ? trend : '',
-    name: String(b.name || '').trim(),
-    category: b.category === 'secret' ? 'secret' : 'legend',
-    image_url: String(b.image_url || '').trim(),
-    v_normal: parseValue(b.v_normal),
-    v_shiny: parseValue(b.v_shiny),
-    v_mystic: parseValue(b.v_mystic),
-    v_shiny_mystic: parseValue(b.v_shiny_mystic),
-    notes: String(b.notes || '').trim(),
-    e_normal: ex('e_normal'),
-    e_shiny: ex('e_shiny'),
-    e_mystic: ex('e_mystic'),
-    e_shiny_mystic: ex('e_shiny_mystic'),
+    e_normal: ex('e_normal'), e_shiny: ex('e_shiny'), e_mystic: ex('e_mystic'), e_shiny_mystic: ex('e_shiny_mystic'),
+    subcat: isSecret ? String(b.subcat || '').trim().toLowerCase().slice(0, 30) : '',
   };
 }
 
@@ -92,6 +124,13 @@ const wrap = fn => (req, res) => fn(req, res).catch(e => {
   console.error(e);
   res.status(500).json({ error: e.code === '23505' ? 'That item already exists in that category' : 'Server error' });
 });
+
+const INSERT_SQL = `INSERT INTO items (${COLS.join(',')}) VALUES (${COLS.map((_, i) => '$' + (i + 1)).join(',')})`;
+const UPDATE_SQL = `UPDATE items SET ${COLS.map((c, i) => `${c}=$${i + 1}`).join(',')},updated_at=now() WHERE id=$${COLS.length + 1} RETURNING *`;
+const UPSERT_SQL = INSERT_SQL +
+  ` ON CONFLICT (name,category) DO UPDATE SET ` +
+  COLS.filter(c => c !== 'name' && c !== 'category').map(c => `${c}=EXCLUDED.${c}`).join(',') +
+  `,updated_at=now()`;
 
 // ---------- public ----------
 app.get('/api/items', wrap(async (req, res) => {
@@ -105,20 +144,14 @@ app.post('/api/login', auth, (req, res) => res.json({ ok: true }));
 app.post('/api/items', auth, wrap(async (req, res) => {
   const d = clean(req.body);
   if (!d.name) return res.status(400).json({ error: 'Name required' });
-  const r = await pool.query(
-    `INSERT INTO items (name,category,image_url,v_normal,v_shiny,v_mystic,v_shiny_mystic,notes,demand,trend,e_normal,e_shiny,e_mystic,e_shiny_mystic)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-    [d.name, d.category, d.image_url, d.v_normal, d.v_shiny, d.v_mystic, d.v_shiny_mystic, d.notes, d.demand, d.trend, d.e_normal, d.e_shiny, d.e_mystic, d.e_shiny_mystic]);
+  const r = await pool.query(INSERT_SQL + ' RETURNING *', COLS.map(c => d[c]));
   res.json(r.rows[0]);
 }));
 
 app.put('/api/items/:id', auth, wrap(async (req, res) => {
   const d = clean(req.body);
   if (!d.name) return res.status(400).json({ error: 'Name required' });
-  const r = await pool.query(
-    `UPDATE items SET name=$1,category=$2,image_url=$3,v_normal=$4,v_shiny=$5,v_mystic=$6,
-     v_shiny_mystic=$7,notes=$8,demand=$9,trend=$10,e_normal=$11,e_shiny=$12,e_mystic=$13,e_shiny_mystic=$14,updated_at=now() WHERE id=$15 RETURNING *`,
-    [d.name, d.category, d.image_url, d.v_normal, d.v_shiny, d.v_mystic, d.v_shiny_mystic, d.notes, d.demand, d.trend, d.e_normal, d.e_shiny, d.e_mystic, d.e_shiny_mystic, req.params.id]);
+  const r = await pool.query(UPDATE_SQL, [...COLS.map(c => d[c]), req.params.id]);
   res.json(r.rows[0] || {});
 }));
 
@@ -129,7 +162,7 @@ app.delete('/api/items/:id', auth, wrap(async (req, res) => {
 
 // Backup download
 app.get('/api/export', auth, wrap(async (req, res) => {
-  const r = await pool.query('SELECT name,category,image_url,v_normal,v_shiny,v_mystic,v_shiny_mystic,notes,demand,trend,e_normal,e_shiny,e_mystic,e_shiny_mystic FROM items ORDER BY name');
+  const r = await pool.query(`SELECT ${COLS.join(',')} FROM items ORDER BY name`);
   res.setHeader('Content-Disposition', 'attachment; filename="values-backup.json"');
   res.json(r.rows);
 }));
@@ -141,16 +174,7 @@ app.post('/api/import', auth, wrap(async (req, res) => {
   for (const raw of req.body) {
     const d = clean(raw);
     if (!d.name) continue;
-    await pool.query(
-      `INSERT INTO items (name,category,image_url,v_normal,v_shiny,v_mystic,v_shiny_mystic,notes,demand,trend,e_normal,e_shiny,e_mystic,e_shiny_mystic)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-       ON CONFLICT (name,category) DO UPDATE SET image_url=EXCLUDED.image_url,
-       v_normal=EXCLUDED.v_normal, v_shiny=EXCLUDED.v_shiny, v_mystic=EXCLUDED.v_mystic,
-       v_shiny_mystic=EXCLUDED.v_shiny_mystic, notes=EXCLUDED.notes,
-       demand=EXCLUDED.demand, trend=EXCLUDED.trend,
-       e_normal=EXCLUDED.e_normal, e_shiny=EXCLUDED.e_shiny, e_mystic=EXCLUDED.e_mystic,
-       e_shiny_mystic=EXCLUDED.e_shiny_mystic, updated_at=now()`,
-      [d.name, d.category, d.image_url, d.v_normal, d.v_shiny, d.v_mystic, d.v_shiny_mystic, d.notes, d.demand, d.trend, d.e_normal, d.e_shiny, d.e_mystic, d.e_shiny_mystic]);
+    await pool.query(UPSERT_SQL, COLS.map(c => d[c]));
     n++;
   }
   res.json({ imported: n });
