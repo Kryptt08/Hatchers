@@ -31,8 +31,8 @@
 <div class="bar" id="sub" style="display:none"></div>
 <div class="scroll"><table>
   <thead><tr>
-    <th data-k="name">Name</th><th data-k="v_normal">Normal</th><th data-k="v_shiny">Shiny</th>
-    <th data-k="v_mystic">Mystic</th><th data-k="v_shiny_mystic">Shiny Mystic</th>
+    <th data-k="name">Name</th><th data-k="eff_normal">Normal</th><th data-k="eff_shiny">Shiny</th>
+    <th data-k="eff_mystic">Mystic</th><th data-k="eff_shiny_mystic">Shiny Mystic</th>
     <th data-k="demand">Demand</th><th data-k="trend">Trend</th>
   </tr></thead>
   <tbody id="rows"></tbody>
@@ -47,12 +47,12 @@ function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','
 function fmt(n){
   n=Number(n)||0; if(!n) return '-';
   for(const [v,s] of [[1e12,'T'],[1e9,'B'],[1e6,'M'],[1e3,'K']]) if(n>=v) return (+(n/v).toFixed(2))+s;
-  return String(n);
+  return String(+n.toFixed(2));
 }
 // value slot: custom text (N/A etc.) wins, otherwise the number. Secrets also show exist count.
 function vc(i,k,e){
   const t=i['vt_'+k];
-  const main=t?`<span class="txt">${esc(t)}</span>`:fmt(i['v_'+k]);
+  const main=t?`<span class="txt">${esc(t)}</span>`:fmt(i['eff_'+k]);
   const ex=Number(i[e])||0;
   return main+(i.category==='secret'?`<div class="n">Exist: ${ex?ex.toLocaleString():'-'}</div>`:'');
 }

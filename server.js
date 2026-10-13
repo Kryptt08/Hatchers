@@ -132,10 +132,44 @@ const UPSERT_SQL = INSERT_SQL +
   COLS.filter(c => c !== 'name' && c !== 'category').map(c => `${c}=EXCLUDED.${c}`).join(',') +
   `,updated_at=now()`;
 
+// ---------- auto value math (secrets only) ----------
+const BASE = 1000000;     // value of 1 = 1,000,000  ->  value = BASE / amount that exist
+const SHINY_RATIO = 8;    // 8 normals can be made into 1 shiny
+
+// Round auto values to the closest "clean" number: 13000, 13250, 13500, 13750, 14000...
+// Steps: 250 for 1,000+, 25 for 100-999, 5 below that. Change the numbers here if you want.
+function niceRound(x) {
+  if (!(x > 0)) return 0;
+  const step = x >= 1000 ? 250 : x >= 100 ? 25 : 5;
+  const r = Math.round(x / step) * step;
+  return r > 0 ? r : Math.round(x * 100) / 100;
+}
+
+function withAuto(r) {
+  const secret = r.category === 'secret';
+  const per = c => (c > 0 ? BASE / c : 0);
+  const possibleShinies = secret ? Math.floor(r.e_normal / SHINY_RATIO) : 0;
+  const shinySupply = secret ? r.e_shiny + possibleShinies : 0; // real shinies + ones that could still be made
+  const auto = {
+    normal: secret ? per(r.e_normal) : 0,
+    shiny: per(shinySupply),
+    mystic: secret ? per(r.e_mystic) : 0,
+    shiny_mystic: secret ? per(r.e_shiny_mystic) : 0,
+  };
+  const out = { ...r, possible_shinies: possibleShinies };
+  for (const k of Object.keys(auto)) {
+    const a = niceRound(auto[k]);
+    out['auto_' + k] = a;
+    // typed text -> no number; typed number -> that number; blank -> auto value
+    out['eff_' + k] = r['vt_' + k] ? 0 : (r['v_' + k] > 0 ? r['v_' + k] : a);
+  }
+  return out;
+}
+
 // ---------- public ----------
 app.get('/api/items', wrap(async (req, res) => {
   const r = await pool.query('SELECT * FROM items ORDER BY name');
-  res.json(r.rows);
+  res.json(r.rows.map(withAuto));
 }));
 
 // ---------- admin ----------
